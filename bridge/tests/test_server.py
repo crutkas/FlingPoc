@@ -44,6 +44,24 @@ class DispatchTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(BridgeError):
             await Bridge().play("device", "file:///private/video.mp4")
 
+    async def test_pair_start_begins_airplay_pairing(self) -> None:
+        bridge = Bridge()
+        config = object()
+        bridge.find = AsyncMock(return_value=config)
+        handler = MagicMock()
+        handler.begin = AsyncMock()
+        protocol = object()
+        pyatv = SimpleNamespace(
+            const=SimpleNamespace(Protocol=SimpleNamespace(AirPlay=protocol)),
+            pair=AsyncMock(return_value=handler),
+        )
+        with patch.object(bridge, "_pyatv", return_value=pyatv):
+            result = await bridge.pair_start("device")
+
+        self.assertIn("sessionId", result)
+        pyatv.pair.assert_awaited_once()
+        handler.begin.assert_awaited_once()
+
 
 if __name__ == "__main__":
     unittest.main()

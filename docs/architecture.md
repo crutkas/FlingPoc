@@ -14,8 +14,9 @@ and connects for playback or control operations.
 Apple TV cannot fetch content from the PC's loopback address. For local files
 and generated HLS, the bridge therefore starts a separate HTTP server on all
 interfaces and advertises the PC's LAN address. The server uses an ephemeral
-port, disables directory listings, and limits file-casting requests to the
-selected filename.
+port, disables directory listings, and limits file-casting requests to the selected filename. Every media URL also has a random,
+per-process path token so an unrelated LAN peer cannot guess the desktop or
+file URL.
 
 ## Crawl flow
 

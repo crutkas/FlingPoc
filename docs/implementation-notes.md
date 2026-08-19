@@ -38,6 +38,8 @@ pipes.
 - Local media/HLS must be permitted through the host firewall.
 - The bridge is process-scoped, so file casting and mirroring end when the CLI
   exits.
+- URL casting also remains attached to the CLI because pyatv keeps the AirPlay
+  playback session open until media completes.
 
 ## Next experiments
 

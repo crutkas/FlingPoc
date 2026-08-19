@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import pathlib
@@ -9,6 +10,7 @@ import secrets
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
 from dataclasses import dataclass
@@ -34,9 +36,12 @@ class Bridge:
     def __init__(self) -> None:
         self.pairings: dict[str, PairingState] = {}
         self.ffmpeg: subprocess.Popen[bytes] | None = None
+        self.ffmpeg_log: Any = None
+        self.playback_task: asyncio.Task[None] | None = None
         self.media_server: ThreadingHTTPServer | None = None
         self.media_thread: threading.Thread | None = None
         self.media_root: pathlib.Path | None = None
+        self.media_token = ""
         self.storage: Any = None
 
     async def initialize(self) -> None:
@@ -123,8 +128,18 @@ class Bridge:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"}:
             raise BridgeError("Apple TV playback requires an HTTP or HTTPS URL.")
-        pyatv = self._pyatv()
         config = await self.find(device_id)
+        await self.start_playback(config, url)
+
+    async def start_playback(self, config: Any, url: str) -> None:
+        await self.stop_playback()
+        self.playback_task = asyncio.create_task(self.run_playback(config, url))
+        await asyncio.sleep(0.25)
+        if self.playback_task.done():
+            await self.playback_task
+
+    async def run_playback(self, config: Any, url: str) -> None:
+        pyatv = self._pyatv()
         atv = await pyatv.connect(
             config,
             asyncio.get_running_loop(),
@@ -135,6 +150,13 @@ class Bridge:
             await atv.stream.play_url(url)
         finally:
             atv.close()
+
+    async def stop_playback(self) -> None:
+        if self.playback_task is not None and not self.playback_task.done():
+            self.playback_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.playback_task
+        self.playback_task = None
 
     async def stop(self, device_id: str) -> None:
         pyatv = self._pyatv()
@@ -149,6 +171,7 @@ class Bridge:
             await atv.remote_control.stop()
         finally:
             atv.close()
+        await self.stop_playback()
         await self.stop_stream()
 
     async def status(self, device_id: str) -> dict[str, Any]:
@@ -173,9 +196,13 @@ class Bridge:
 
     async def play_file(self, device_id: str, path: str) -> None:
         media = pathlib.Path(path).resolve(strict=True)
+        config = await self.find(device_id)
         await self.start_media_server(media.parent, media.name)
-        url = f"http://{lan_address()}:{self.media_server.server_port}/{quote(media.name)}"
-        await self.play(device_id, url)
+        url = (
+            f"http://{lan_address(config.address)}:{self.media_server.server_port}/"
+            f"{self.media_token}/{quote(media.name)}"
+        )
+        await self.start_playback(config, url)
 
     async def mirror(
         self,
@@ -186,6 +213,7 @@ class Bridge:
         if not shutil_which("ffmpeg"):
             raise BridgeError("FFmpeg was not found on PATH.", HTTPStatus.SERVICE_UNAVAILABLE)
 
+        config = await self.find(device_id)
         await self.stop_stream()
         root = pathlib.Path(os.getenv("TEMP", ".")) / f"fling-{secrets.token_hex(8)}"
         root.mkdir(parents=True)
@@ -201,23 +229,26 @@ class Bridge:
             "-hls_flags", "delete_segments+append_list+independent_segments",
             str(playlist),
         ]
+        self.ffmpeg_log = tempfile.TemporaryFile()
         self.ffmpeg = subprocess.Popen(
             *args,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stderr=self.ffmpeg_log,
         )
         for _ in range(100):
             if playlist.exists():
                 break
             if self.ffmpeg.poll() is not None:
-                error = self.ffmpeg.stderr.read().decode(errors="replace")
+                self.ffmpeg_log.seek(0)
+                error = self.ffmpeg_log.read().decode(errors="replace")
                 raise BridgeError(f"FFmpeg capture failed: {error.strip()}")
             await asyncio.sleep(0.1)
         else:
             raise BridgeError("FFmpeg did not produce a stream in time.")
-        await self.play(
-            device_id,
-            f"http://{lan_address()}:{self.media_server.server_port}/desktop.m3u8",
+        await self.start_playback(
+            config,
+            f"http://{lan_address(config.address)}:{self.media_server.server_port}/"
+            f"{self.media_token}/desktop.m3u8",
         )
 
     async def start_media_server(
@@ -229,10 +260,12 @@ class Bridge:
             self.media_server.shutdown()
             self.media_server.server_close()
         self.media_root = root
+        self.media_token = secrets.token_urlsafe(24)
         handler = lambda *args, **kwargs: QuietFileHandler(  # noqa: E731
             *args,
             directory=str(root),
             allowed_file=allowed_file,
+            url_token=self.media_token,
             **kwargs,
         )
         self.media_server = ThreadingHTTPServer(("0.0.0.0", 0), handler)
@@ -251,8 +284,12 @@ class Bridge:
             except subprocess.TimeoutExpired:
                 self.ffmpeg.kill()
         self.ffmpeg = None
+        if self.ffmpeg_log is not None:
+            self.ffmpeg_log.close()
+            self.ffmpeg_log = None
 
     async def close(self) -> None:
+        await self.stop_playback()
         await self.stop_stream()
         if self.media_server is not None:
             self.media_server.shutdown()
@@ -264,15 +301,33 @@ class Bridge:
 
 
 class QuietFileHandler(SimpleHTTPRequestHandler):
-    def __init__(self, *args: Any, allowed_file: str | None = None, **kwargs: Any):
+    def __init__(
+        self,
+        *args: Any,
+        allowed_file: str | None = None,
+        url_token: str,
+        **kwargs: Any,
+    ):
         self.allowed_file = allowed_file
+        self.url_token = url_token
         super().__init__(*args, **kwargs)
 
     def send_head(self) -> Any:
         requested = unquote(urlparse(self.path).path).lstrip("/")
+        token, separator, requested = requested.partition("/")
+        if not separator or not secrets.compare_digest(token, self.url_token):
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return None
         if self.allowed_file is not None and requested != self.allowed_file:
             self.send_error(HTTPStatus.NOT_FOUND)
             return None
+        if self.allowed_file is None and pathlib.PurePosixPath(requested).suffix not in {
+            ".m3u8",
+            ".ts",
+        }:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return None
+        self.path = "/" + quote(requested)
         return super().send_head()
 
     def list_directory(self, path: str) -> None:
@@ -288,10 +343,10 @@ class QuietFileHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
 
-def lan_address() -> str:
+def lan_address(target: Any = "192.0.2.1") -> str:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as connection:
         try:
-            connection.connect(("192.0.2.1", 80))
+            connection.connect((str(target), 80))
             return str(connection.getsockname()[0])
         except OSError:
             return "127.0.0.1"

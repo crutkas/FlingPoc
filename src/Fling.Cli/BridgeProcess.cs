@@ -43,23 +43,28 @@ public sealed class BridgeProcess : IAsyncDisposable
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var bridge = new BridgeProcess(process, httpClient);
 
-        for (var attempt = 0; attempt < 50; attempt++)
+        try
         {
-            if (process.HasExited)
+            for (var attempt = 0; attempt < 50; attempt++)
             {
-                var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-                await bridge.DisposeAsync();
-                throw new InvalidOperationException($"Python bridge exited: {error.Trim()}");
+                if (process.HasExited)
+                {
+                    var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+                    throw new InvalidOperationException($"Python bridge exited: {error.Trim()}");
+                }
+                if (await bridge.Client.IsHealthyAsync(cancellationToken))
+                {
+                    return bridge;
+                }
+                await Task.Delay(100, cancellationToken);
             }
-            if (await bridge.Client.IsHealthyAsync(cancellationToken))
-            {
-                return bridge;
-            }
-            await Task.Delay(100, cancellationToken);
+            throw new TimeoutException("Python bridge did not become ready.");
         }
-
-        await bridge.DisposeAsync();
-        throw new TimeoutException("Python bridge did not become ready.");
+        catch
+        {
+            await bridge.DisposeAsync();
+            throw;
+        }
     }
 
     public async ValueTask DisposeAsync()

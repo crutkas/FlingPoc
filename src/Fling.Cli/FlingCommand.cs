@@ -40,7 +40,7 @@ public static class FlingCommand
                     break;
                 case "cast-url" when args.Length == 3:
                     await client.PlayUrlAsync(args[1], args[2], cancellation.Token);
-                    Console.WriteLine("Playback requested.");
+                    await WaitForStopAsync("Casting. Press Ctrl+C to stop.", cancellation.Token);
                     break;
                 case "cast-file" when args.Length == 3:
                     var file = Path.GetFullPath(args[2]);
