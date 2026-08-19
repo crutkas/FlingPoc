@@ -23,8 +23,6 @@ public static class FlingCommand
         {
             await using var bridge = await BridgeProcess.StartAsync(cancellation.Token);
             var client = bridge.Client;
-            var credentials = CredentialStore.Load();
-
             switch (args[0])
             {
                 case "devices":
@@ -37,12 +35,11 @@ public static class FlingCommand
                     var pairing = await client.StartPairingAsync(args[1], cancellation.Token);
                     Console.Write("PIN shown on Apple TV (or requested by it): ");
                     var pin = Console.ReadLine() ?? "";
-                    var credential = await client.FinishPairingAsync(pairing.SessionId, pin, cancellation.Token);
-                    CredentialStore.Save(args[1], credential.Credentials);
-                    Console.WriteLine("Paired. Credentials saved for the current user.");
+                    await client.FinishPairingAsync(pairing.SessionId, pin, cancellation.Token);
+                    Console.WriteLine("Paired. pyatv saved the credentials for the current user.");
                     break;
                 case "cast-url" when args.Length == 3:
-                    await client.PlayUrlAsync(args[1], args[2], credentials.GetValueOrDefault(args[1]), cancellation.Token);
+                    await client.PlayUrlAsync(args[1], args[2], cancellation.Token);
                     Console.WriteLine("Playback requested.");
                     break;
                 case "cast-file" when args.Length == 3:
@@ -51,16 +48,20 @@ public static class FlingCommand
                     {
                         throw new FileNotFoundException("Media file not found.", file);
                     }
-                    await client.PlayFileAsync(args[1], file, credentials.GetValueOrDefault(args[1]), cancellation.Token);
+                    await client.PlayFileAsync(args[1], file, cancellation.Token);
                     await WaitForStopAsync("Serving media. Press Ctrl+C to stop.", cancellation.Token);
                     break;
                 case "mirror" when args.Length is 2 or 3:
-                    await client.StartMirrorAsync(args[1], args.ElementAtOrDefault(2), credentials.GetValueOrDefault(args[1]), cancellation.Token);
+                    await client.StartMirrorAsync(args[1], args.ElementAtOrDefault(2), cancellation.Token);
                     await WaitForStopAsync("Mirroring. Press Ctrl+C to stop.", cancellation.Token);
                     break;
                 case "stop" when args.Length == 2:
-                    await client.StopAsync(args[1], credentials.GetValueOrDefault(args[1]), cancellation.Token);
+                    await client.StopAsync(args[1], cancellation.Token);
                     Console.WriteLine("Stop requested.");
+                    break;
+                case "status" when args.Length == 2:
+                    var status = await client.GetStatusAsync(args[1], cancellation.Token);
+                    Console.WriteLine($"{status.State}\t{status.Title ?? "(untitled)"}\t{status.Position:0}/{status.Duration:0}s");
                     break;
                 default:
                     PrintHelp();
@@ -107,6 +108,7 @@ public static class FlingCommand
               cast-url <device-id> <http(s)-url>
               cast-file <device-id> <file>
               mirror <device-id> [desktop-number]
+              status <device-id>
               stop <device-id>
 
             FFmpeg must be on PATH for mirror. Set FLING_PYTHON to select Python.

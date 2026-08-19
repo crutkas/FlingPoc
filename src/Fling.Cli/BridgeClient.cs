@@ -14,20 +14,23 @@ public sealed class BridgeClient(HttpClient httpClient)
     public Task<PairingSession> StartPairingAsync(string deviceId, CancellationToken cancellationToken) =>
         SendAsync<PairingSession>(HttpMethod.Post, "/v1/pair/start", new { deviceId }, cancellationToken);
 
-    public Task<PairingResult> FinishPairingAsync(string sessionId, string pin, CancellationToken cancellationToken) =>
-        SendAsync<PairingResult>(HttpMethod.Post, "/v1/pair/finish", new { sessionId, pin }, cancellationToken);
+    public Task FinishPairingAsync(string sessionId, string pin, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Post, "/v1/pair/finish", new { sessionId, pin }, cancellationToken);
 
-    public Task PlayUrlAsync(string deviceId, string url, string? credentials, CancellationToken cancellationToken) =>
-        SendAsync(HttpMethod.Post, "/v1/play", new { deviceId, url, credentials }, cancellationToken);
+    public Task PlayUrlAsync(string deviceId, string url, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Post, "/v1/play", new { deviceId, url }, cancellationToken);
 
-    public Task PlayFileAsync(string deviceId, string path, string? credentials, CancellationToken cancellationToken) =>
-        SendAsync(HttpMethod.Post, "/v1/file", new { deviceId, path, credentials }, cancellationToken);
+    public Task PlayFileAsync(string deviceId, string path, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Post, "/v1/file", new { deviceId, path }, cancellationToken);
 
-    public Task StartMirrorAsync(string deviceId, string? display, string? credentials, CancellationToken cancellationToken) =>
-        SendAsync(HttpMethod.Post, "/v1/mirror", new { deviceId, display, credentials }, cancellationToken);
+    public Task StartMirrorAsync(string deviceId, string? display, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Post, "/v1/mirror", new { deviceId, display }, cancellationToken);
 
-    public Task StopAsync(string deviceId, string? credentials, CancellationToken cancellationToken) =>
-        SendAsync(HttpMethod.Post, "/v1/stop", new { deviceId, credentials }, cancellationToken);
+    public Task<PlaybackStatus> GetStatusAsync(string deviceId, CancellationToken cancellationToken) =>
+        SendAsync<PlaybackStatus>(HttpMethod.Post, "/v1/status", new { deviceId }, cancellationToken);
+
+    public Task StopAsync(string deviceId, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Post, "/v1/stop", new { deviceId }, cancellationToken);
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)
     {
@@ -68,7 +71,7 @@ public sealed class BridgeClient(HttpClient httpClient)
 
 public sealed record Device(string Id, string Name, string Address, IReadOnlyList<string> Protocols);
 public sealed record PairingSession(string SessionId);
-public sealed record PairingResult(string Credentials);
+public sealed record PlaybackStatus(string State, string? Title, double? Position, double? Duration);
 internal sealed record ErrorResponse(string Error);
 
 public sealed class BridgeException(HttpStatusCode statusCode, string message) : Exception(message)

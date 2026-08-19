@@ -2,22 +2,20 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import contextlib
 import json
-import mimetypes
 import os
 import pathlib
 import secrets
 import socket
 import subprocess
+import sys
 import threading
-import time
 import uuid
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, unquote, urlparse
 
 
 class BridgeError(Exception):
@@ -29,15 +27,24 @@ class BridgeError(Exception):
 @dataclass
 class PairingState:
     handler: Any
+    config: Any
 
 
 class Bridge:
     def __init__(self) -> None:
         self.pairings: dict[str, PairingState] = {}
-        self.ffmpeg: asyncio.subprocess.Process | None = None
+        self.ffmpeg: subprocess.Popen[bytes] | None = None
         self.media_server: ThreadingHTTPServer | None = None
         self.media_thread: threading.Thread | None = None
         self.media_root: pathlib.Path | None = None
+        self.storage: Any = None
+
+    async def initialize(self) -> None:
+        self._pyatv()
+        from pyatv.storage.file_storage import FileStorage
+
+        self.storage = FileStorage.default_storage(asyncio.get_running_loop())
+        await self.storage.load()
 
     @staticmethod
     def _pyatv() -> Any:
@@ -52,10 +59,13 @@ class Bridge:
 
     async def scan(self) -> list[Any]:
         pyatv = self._pyatv()
-        return await pyatv.scan(asyncio.get_running_loop(), timeout=5)
+        return await pyatv.scan(
+            asyncio.get_running_loop(),
+            timeout=5,
+            storage=self.storage,
+        )
 
-    async def find(self, device_id: str, credentials: str | None = None) -> Any:
-        pyatv = self._pyatv()
+    async def find(self, device_id: str) -> Any:
         devices = await self.scan()
         config = next(
             (
@@ -67,8 +77,6 @@ class Bridge:
         )
         if config is None:
             raise BridgeError("Apple TV was not found.", HTTPStatus.NOT_FOUND)
-        if credentials:
-            config.set_credentials(pyatv.const.Protocol.AirPlay, credentials)
         return config
 
     async def devices(self) -> list[dict[str, Any]]:
@@ -92,7 +100,7 @@ class Bridge:
         )
         await handler.begin()
         session_id = uuid.uuid4().hex
-        self.pairings[session_id] = PairingState(handler)
+        self.pairings[session_id] = PairingState(handler, config)
         return {"sessionId": session_id}
 
     async def pair_finish(self, session_id: str, pin: str) -> dict[str, str]:
@@ -105,43 +113,64 @@ class Bridge:
             await pairing.handler.finish()
             if not pairing.handler.has_paired:
                 raise BridgeError("Pairing was not accepted.")
-            return {"credentials": pairing.handler.service.credentials}
+            await self.storage.update_settings(pairing.config)
+            await self.storage.save()
+            return {}
         finally:
             await pairing.handler.close()
 
-    async def play(self, device_id: str, url: str, credentials: str | None) -> None:
+    async def play(self, device_id: str, url: str) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"}:
             raise BridgeError("Apple TV playback requires an HTTP or HTTPS URL.")
         pyatv = self._pyatv()
-        config = await self.find(device_id, credentials)
-        atv = await pyatv.connect(config, asyncio.get_running_loop())
+        config = await self.find(device_id)
+        atv = await pyatv.connect(
+            config,
+            asyncio.get_running_loop(),
+            protocol=pyatv.const.Protocol.AirPlay,
+            storage=self.storage,
+        )
         try:
             await atv.stream.play_url(url)
         finally:
             atv.close()
 
-    async def stop(self, device_id: str, credentials: str | None) -> None:
+    async def stop(self, device_id: str) -> None:
         pyatv = self._pyatv()
-        config = await self.find(device_id, credentials)
-        atv = await pyatv.connect(config, asyncio.get_running_loop())
+        config = await self.find(device_id)
+        atv = await pyatv.connect(config, asyncio.get_running_loop(), storage=self.storage)
         try:
             await atv.remote_control.stop()
         finally:
             atv.close()
         await self.stop_stream()
 
-    async def play_file(self, device_id: str, path: str, credentials: str | None) -> None:
+    async def status(self, device_id: str) -> dict[str, Any]:
+        pyatv = self._pyatv()
+        config = await self.find(device_id)
+        atv = await pyatv.connect(config, asyncio.get_running_loop(), storage=self.storage)
+        try:
+            playing = await atv.metadata.playing()
+            return {
+                "state": playing.device_state.name,
+                "title": playing.title,
+                "position": playing.position,
+                "duration": playing.total_time,
+            }
+        finally:
+            atv.close()
+
+    async def play_file(self, device_id: str, path: str) -> None:
         media = pathlib.Path(path).resolve(strict=True)
-        await self.start_media_server(media.parent)
-        url = f"http://{lan_address()}:{self.media_server.server_port}/{media.name}"
-        await self.play(device_id, url, credentials)
+        await self.start_media_server(media.parent, media.name)
+        url = f"http://{lan_address()}:{self.media_server.server_port}/{quote(media.name)}"
+        await self.play(device_id, url)
 
     async def mirror(
         self,
         device_id: str,
         display: str | None,
-        credentials: str | None,
     ) -> None:
         if os.name != "nt":
             raise BridgeError("Desktop capture currently supports Windows only.")
@@ -164,16 +193,16 @@ class Bridge:
             "-hls_flags", "delete_segments+append_list+independent_segments",
             str(playlist),
         ]
-        self.ffmpeg = await asyncio.create_subprocess_exec(
+        self.ffmpeg = subprocess.Popen(
             *args,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
         for _ in range(100):
             if playlist.exists():
                 break
-            if self.ffmpeg.returncode is not None:
-                error = (await self.ffmpeg.stderr.read()).decode(errors="replace")
+            if self.ffmpeg.poll() is not None:
+                error = self.ffmpeg.stderr.read().decode(errors="replace")
                 raise BridgeError(f"FFmpeg capture failed: {error.strip()}")
             await asyncio.sleep(0.1)
         else:
@@ -181,16 +210,22 @@ class Bridge:
         await self.play(
             device_id,
             f"http://{lan_address()}:{self.media_server.server_port}/desktop.m3u8",
-            credentials,
         )
 
-    async def start_media_server(self, root: pathlib.Path) -> None:
+    async def start_media_server(
+        self,
+        root: pathlib.Path,
+        allowed_file: str | None = None,
+    ) -> None:
         if self.media_server is not None:
             self.media_server.shutdown()
             self.media_server.server_close()
         self.media_root = root
         handler = lambda *args, **kwargs: QuietFileHandler(  # noqa: E731
-            *args, directory=str(root), **kwargs
+            *args,
+            directory=str(root),
+            allowed_file=allowed_file,
+            **kwargs,
         )
         self.media_server = ThreadingHTTPServer(("0.0.0.0", 0), handler)
         self.media_thread = threading.Thread(
@@ -201,11 +236,11 @@ class Bridge:
         self.media_thread.start()
 
     async def stop_stream(self) -> None:
-        if self.ffmpeg is not None and self.ffmpeg.returncode is None:
+        if self.ffmpeg is not None and self.ffmpeg.poll() is None:
             self.ffmpeg.terminate()
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(self.ffmpeg.wait(), timeout=3)
-            if self.ffmpeg.returncode is None:
+            try:
+                await asyncio.to_thread(self.ffmpeg.wait, 3)
+            except subprocess.TimeoutExpired:
                 self.ffmpeg.kill()
         self.ffmpeg = None
 
@@ -221,6 +256,21 @@ class Bridge:
 
 
 class QuietFileHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args: Any, allowed_file: str | None = None, **kwargs: Any):
+        self.allowed_file = allowed_file
+        super().__init__(*args, **kwargs)
+
+    def send_head(self) -> Any:
+        requested = pathlib.PurePosixPath(unquote(urlparse(self.path).path)).name
+        if self.allowed_file is not None and requested != self.allowed_file:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return None
+        return super().send_head()
+
+    def list_directory(self, path: str) -> None:
+        self.send_error(HTTPStatus.NOT_FOUND)
+        return None
+
     def log_message(self, format: str, *args: Any) -> None:
         pass
 
@@ -282,16 +332,18 @@ async def dispatch(bridge: Bridge, method: str, path: str, body: bytes) -> Any:
     if method == "POST" and path == "/v1/pair/finish":
         return await bridge.pair_finish(data["sessionId"], data["pin"])
     if method == "POST" and path == "/v1/play":
-        await bridge.play(data["deviceId"], data["url"], data.get("credentials"))
+        await bridge.play(data["deviceId"], data["url"])
         return {}
     if method == "POST" and path == "/v1/file":
-        await bridge.play_file(data["deviceId"], data["path"], data.get("credentials"))
+        await bridge.play_file(data["deviceId"], data["path"])
         return {}
     if method == "POST" and path == "/v1/mirror":
-        await bridge.mirror(data["deviceId"], data.get("display"), data.get("credentials"))
+        await bridge.mirror(data["deviceId"], data.get("display"))
         return {}
+    if method == "POST" and path == "/v1/status":
+        return await bridge.status(data["deviceId"])
     if method == "POST" and path == "/v1/stop":
-        await bridge.stop(data["deviceId"], data.get("credentials"))
+        await bridge.stop(data["deviceId"])
         return {}
     raise BridgeError("Route not found.", HTTPStatus.NOT_FOUND)
 
@@ -305,7 +357,10 @@ async def handle(
     status = HTTPStatus.OK
     try:
         method, path, headers, body = await asyncio.wait_for(read_request(reader), timeout=15)
-        if not secrets.compare_digest(headers.get("authorization", ""), f"******"):
+        if not secrets.compare_digest(
+            headers.get("authorization", ""),
+            "Bearer " + token,
+        ):
             raise BridgeError("Unauthorized.", HTTPStatus.UNAUTHORIZED)
         payload = await dispatch(bridge, method, path, body)
     except BridgeError as error:
@@ -331,6 +386,7 @@ async def serve(port: int) -> None:
     if not token:
         raise RuntimeError("FLING_TOKEN must be set.")
     bridge = Bridge()
+    await bridge.initialize()
     server = await asyncio.start_server(
         lambda reader, writer: handle(reader, writer, bridge, token),
         "127.0.0.1",
@@ -347,4 +403,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="FlingPoc local pyatv bridge")
     parser.add_argument("--port", type=int, required=True)
     args = parser.parse_args()
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(serve(args.port))

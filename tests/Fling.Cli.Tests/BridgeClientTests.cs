@@ -23,7 +23,7 @@ public sealed class BridgeClientTests
         var handler = new StubHandler(HttpStatusCode.BadRequest, """{"error":"bad request"}""");
         var client = new BridgeClient(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
 
-        var error = await Assert.ThrowsAsync<BridgeException>(() => client.StopAsync("abc", null, CancellationToken.None));
+        var error = await Assert.ThrowsAsync<BridgeException>(() => client.StopAsync("abc", CancellationToken.None));
 
         Assert.Equal("bad request", error.Message);
     }
