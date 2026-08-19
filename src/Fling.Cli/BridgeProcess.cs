@@ -21,7 +21,6 @@ public sealed class BridgeProcess : IAsyncDisposable
     public static async Task<BridgeProcess> StartAsync(CancellationToken cancellationToken)
     {
         var repositoryRoot = FindRepositoryRoot();
-        var bridgeDirectory = Path.Combine(repositoryRoot, "bridge");
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         var port = GetAvailablePort();
         var python = Environment.GetEnvironmentVariable("FLING_PYTHON") ?? (OperatingSystem.IsWindows() ? "python" : "python3");

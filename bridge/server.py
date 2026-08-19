@@ -139,7 +139,12 @@ class Bridge:
     async def stop(self, device_id: str) -> None:
         pyatv = self._pyatv()
         config = await self.find(device_id)
-        atv = await pyatv.connect(config, asyncio.get_running_loop(), storage=self.storage)
+        atv = await pyatv.connect(
+            config,
+            asyncio.get_running_loop(),
+            protocol=pyatv.const.Protocol.AirPlay,
+            storage=self.storage,
+        )
         try:
             await atv.remote_control.stop()
         finally:
@@ -149,7 +154,12 @@ class Bridge:
     async def status(self, device_id: str) -> dict[str, Any]:
         pyatv = self._pyatv()
         config = await self.find(device_id)
-        atv = await pyatv.connect(config, asyncio.get_running_loop(), storage=self.storage)
+        atv = await pyatv.connect(
+            config,
+            asyncio.get_running_loop(),
+            protocol=pyatv.const.Protocol.AirPlay,
+            storage=self.storage,
+        )
         try:
             playing = await atv.metadata.playing()
             return {
@@ -170,7 +180,6 @@ class Bridge:
     async def mirror(
         self,
         device_id: str,
-        display: str | None,
     ) -> None:
         if os.name != "nt":
             raise BridgeError("Desktop capture currently supports Windows only.")
@@ -182,10 +191,9 @@ class Bridge:
         root.mkdir(parents=True)
         await self.start_media_server(root)
         playlist = root / "desktop.m3u8"
-        desktop = f"desktop{display}" if display else "desktop"
         args = [
             "ffmpeg", "-hide_banner", "-loglevel", "warning",
-            "-f", "gdigrab", "-framerate", "30", "-i", desktop,
+            "-f", "gdigrab", "-framerate", "30", "-i", "desktop",
             "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
             "-pix_fmt", "yuv420p", "-profile:v", "high", "-level", "4.1",
             "-g", "30", "-keyint_min", "30", "-sc_threshold", "0",
@@ -261,7 +269,7 @@ class QuietFileHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, **kwargs)
 
     def send_head(self) -> Any:
-        requested = pathlib.PurePosixPath(unquote(urlparse(self.path).path)).name
+        requested = unquote(urlparse(self.path).path).lstrip("/")
         if self.allowed_file is not None and requested != self.allowed_file:
             self.send_error(HTTPStatus.NOT_FOUND)
             return None
@@ -338,7 +346,7 @@ async def dispatch(bridge: Bridge, method: str, path: str, body: bytes) -> Any:
         await bridge.play_file(data["deviceId"], data["path"])
         return {}
     if method == "POST" and path == "/v1/mirror":
-        await bridge.mirror(data["deviceId"], data.get("display"))
+        await bridge.mirror(data["deviceId"])
         return {}
     if method == "POST" and path == "/v1/status":
         return await bridge.status(data["deviceId"])

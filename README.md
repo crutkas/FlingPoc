@@ -59,9 +59,9 @@ running because Apple TV fetches the file from the temporary LAN server.
 dotnet run --project src\Fling.Cli -- mirror <device-id>
 ```
 
-Press Ctrl+C to stop FFmpeg and the media server. The optional desktop number
-is passed to FFmpeg's `gdigrab` source, but multi-monitor behavior varies by
-FFmpeg build; full virtual-desktop capture is the reliable starting point.
+Press Ctrl+C to stop FFmpeg and the media server. The initial walk slice captures the Windows virtual desktop. Monitor and window
+selection remain follow-up work because `gdigrab` selection behavior varies by
+FFmpeg build.
 
 Current tuning favors latency over compression efficiency: 30 fps H.264,
 one-second keyframes, and a six-segment rolling HLS playlist. Apple TV may add

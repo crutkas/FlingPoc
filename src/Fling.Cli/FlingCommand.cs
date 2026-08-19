@@ -51,8 +51,8 @@ public static class FlingCommand
                     await client.PlayFileAsync(args[1], file, cancellation.Token);
                     await WaitForStopAsync("Serving media. Press Ctrl+C to stop.", cancellation.Token);
                     break;
-                case "mirror" when args.Length is 2 or 3:
-                    await client.StartMirrorAsync(args[1], args.ElementAtOrDefault(2), cancellation.Token);
+                case "mirror" when args.Length == 2:
+                    await client.StartMirrorAsync(args[1], cancellation.Token);
                     await WaitForStopAsync("Mirroring. Press Ctrl+C to stop.", cancellation.Token);
                     break;
                 case "stop" when args.Length == 2:
@@ -107,7 +107,7 @@ public static class FlingCommand
               pair <device-id>
               cast-url <device-id> <http(s)-url>
               cast-file <device-id> <file>
-              mirror <device-id> [desktop-number]
+              mirror <device-id>
               status <device-id>
               stop <device-id>
 

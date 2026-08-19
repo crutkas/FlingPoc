@@ -23,8 +23,8 @@ public sealed class BridgeClient(HttpClient httpClient)
     public Task PlayFileAsync(string deviceId, string path, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Post, "/v1/file", new { deviceId, path }, cancellationToken);
 
-    public Task StartMirrorAsync(string deviceId, string? display, CancellationToken cancellationToken) =>
-        SendAsync(HttpMethod.Post, "/v1/mirror", new { deviceId, display }, cancellationToken);
+    public Task StartMirrorAsync(string deviceId, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Post, "/v1/mirror", new { deviceId }, cancellationToken);
 
     public Task<PlaybackStatus> GetStatusAsync(string deviceId, CancellationToken cancellationToken) =>
         SendAsync<PlaybackStatus>(HttpMethod.Post, "/v1/status", new { deviceId }, cancellationToken);
