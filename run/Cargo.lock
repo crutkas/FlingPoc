@@ -126,6 +126,7 @@ dependencies = [
  "constant_time_eq",
  "fling-airplay",
  "serde",
+ "serde_json",
  "tokio",
  "tower",
 ]

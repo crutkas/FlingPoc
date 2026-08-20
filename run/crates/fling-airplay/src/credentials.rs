@@ -22,7 +22,7 @@ pub struct HapCredentials {
     pub accessory_public_key: [u8; 32],
 }
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CredentialFile {
     version: u32,
@@ -41,6 +41,11 @@ impl FileCredentialStore {
     }
 
     /// Use `~/.fling/airplay-credentials.json`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if neither supported home-directory environment
+    /// variable is available.
     pub fn default_for_user() -> Result<Self> {
         let home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
@@ -61,10 +66,20 @@ impl FileCredentialStore {
         &self.path
     }
 
+    /// Look up credentials by stable receiver identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the store cannot be read or decoded.
     pub fn get(&self, device_id: &str) -> Result<Option<HapCredentials>> {
         Ok(self.load()?.devices.get(device_id).cloned())
     }
 
+    /// Insert or replace credentials for a receiver.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the store cannot be read, encoded, or written.
     pub fn put(&self, device_id: impl Into<String>, credentials: HapCredentials) -> Result<()> {
         let mut file = self.load()?;
         file.devices.insert(device_id.into(), credentials);

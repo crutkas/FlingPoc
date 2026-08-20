@@ -9,7 +9,7 @@ use crate::{AirPlayError, Device, Result};
 
 pub const AIRPLAY_SERVICE_TYPE: &str = "_airplay._tcp.local.";
 
-/// Resolved AirPlay service details used by future pairing and playback code.
+/// Resolved `AirPlay` service details used by future pairing and playback code.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AirPlayService {
     pub device: Device,
@@ -17,7 +17,7 @@ pub struct AirPlayService {
     pub properties: BTreeMap<String, String>,
 }
 
-/// Cross-platform AirPlay discovery backed by DNS-SD.
+/// Cross-platform `AirPlay` discovery backed by DNS-SD.
 pub struct MdnsDiscovery {
     timeout: Duration,
 }
@@ -28,6 +28,11 @@ impl MdnsDiscovery {
         Self { timeout }
     }
 
+    /// Discover receivers and return the stable `/v1` device representation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the mDNS daemon cannot start or browse.
     pub async fn devices(&self) -> Result<Vec<Device>> {
         Ok(self
             .discover_services()
@@ -37,6 +42,11 @@ impl MdnsDiscovery {
             .collect())
     }
 
+    /// Discover receivers with the transport fields needed by protocol clients.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the mDNS daemon cannot start or browse.
     pub async fn discover_services(&self) -> Result<Vec<AirPlayService>> {
         let daemon =
             ServiceDaemon::new().map_err(|error| AirPlayError::Discovery(error.to_string()))?;

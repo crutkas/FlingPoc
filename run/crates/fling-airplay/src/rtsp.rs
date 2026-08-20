@@ -35,6 +35,12 @@ impl RtspRequest {
         }
     }
 
+    /// Encode the request with CRLF-delimited HTTP-style framing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request line or headers contain characters that
+    /// could change the framing.
     pub fn encode(&self) -> Result<Vec<u8>> {
         validate_token("method", &self.method)?;
         validate_token("URI", &self.uri)?;
@@ -54,7 +60,9 @@ impl RtspRequest {
                 .keys()
                 .any(|name| name.eq_ignore_ascii_case("content-length"))
         {
-            output.push_str(&format!("Content-Length: {}\r\n", self.body.len()));
+            output.push_str("Content-Length: ");
+            output.push_str(&self.body.len().to_string());
+            output.push_str("\r\n");
         }
         output.push_str("\r\n");
 
@@ -64,7 +72,7 @@ impl RtspRequest {
     }
 }
 
-/// Parsed response from an AirPlay HTTP/RTSP endpoint.
+/// Parsed response from an `AirPlay` HTTP/RTSP endpoint.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RtspResponse {
     pub protocol: String,
@@ -76,6 +84,10 @@ pub struct RtspResponse {
 
 impl RtspResponse {
     /// Parse one response and return it with the number of consumed bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed or oversized response framing.
     pub fn decode(bytes: &[u8]) -> Result<Option<(Self, usize)>> {
         let Some(header_offset) = bytes.windows(4).position(|window| window == b"\r\n\r\n") else {
             if bytes.len() > MAX_HEADER_BYTES {
@@ -148,7 +160,7 @@ impl RtspResponse {
     }
 }
 
-/// Persistent plain TCP transport for AirPlay HTTP and RTSP exchanges.
+/// Persistent plain TCP transport for `AirPlay` HTTP and RTSP exchanges.
 pub struct RtspConnection {
     stream: TcpStream,
     pending: Vec<u8>,
@@ -157,6 +169,11 @@ pub struct RtspConnection {
 }
 
 impl RtspConnection {
+    /// Connect to a receiver over plain TCP.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection fails or times out.
     pub async fn connect(address: SocketAddr) -> Result<Self> {
         let stream = tokio::time::timeout(DEFAULT_TIMEOUT, TcpStream::connect(address))
             .await
@@ -169,6 +186,12 @@ impl RtspConnection {
         })
     }
 
+    /// Send one request and receive its complete response.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid framing, I/O failure, timeout, or a response
+    /// that exceeds the configured limits.
     pub async fn exchange(&mut self, mut request: RtspRequest) -> Result<RtspResponse> {
         if request.protocol.eq_ignore_ascii_case("RTSP/1.0") {
             request
@@ -212,18 +235,28 @@ impl RtspConnection {
     }
 }
 
+/// Serialize a value as an Apple binary property list.
+///
+/// # Errors
+///
+/// Returns an error if the value cannot be represented as a property list.
 pub fn encode_binary_plist<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     let mut encoded = Vec::new();
     plist::to_writer_binary(&mut encoded, value)?;
     Ok(encoded)
 }
 
+/// Deserialize an XML or binary property list.
+///
+/// # Errors
+///
+/// Returns an error if the payload is malformed or does not match `T`.
 pub fn decode_plist<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
     Ok(plist::from_bytes(bytes)?)
 }
 
 fn validate_token(kind: &str, value: &str) -> Result<()> {
-    if value.is_empty() || value.bytes().any(|byte| byte.is_ascii_control()) {
+    if value.is_empty() || value.bytes().any(|byte| byte.is_ascii_whitespace()) {
         return Err(AirPlayError::Protocol(format!(
             "{kind} contains invalid characters"
         )));
