@@ -95,6 +95,25 @@ class Bridge:
             for item in await self.scan()
         ]
 
+    @staticmethod
+    def capabilities() -> dict[str, dict[str, str]]:
+        def supported(detail: str) -> dict[str, str]:
+            return {"status": "supported", "detail": detail}
+
+        return {
+            "discovery": supported("pyatv discovers AirPlay services with mDNS."),
+            "pairing": supported("pyatv provides AirPlay HAP pairing."),
+            "urlPlayback": supported("pyatv provides AirPlay URL playback."),
+            "filePlayback": supported("The bridge serves a token-gated file over the LAN."),
+            "playbackStatus": supported("pyatv provides playback metadata."),
+            "stop": supported("pyatv provides playback control."),
+            "hlsMirroring": supported("FFmpeg desktop capture is distributed as token-gated HLS."),
+            "nativeMirroring": {
+                "status": "unsupported",
+                "detail": "Native mirroring requires a separately licensed FairPlay implementation.",
+            },
+        }
+
     async def pair_start(self, device_id: str) -> dict[str, str]:
         pyatv = self._pyatv()
         config = await self.find(device_id)
@@ -388,6 +407,8 @@ async def dispatch(bridge: Bridge, method: str, path: str, body: bytes) -> Any:
     data = json.loads(body or b"{}")
     if method == "GET" and path == "/health":
         return {"status": "ok"}
+    if method == "GET" and path == "/v1/capabilities":
+        return bridge.capabilities()
     if method == "GET" and path == "/v1/devices":
         return await bridge.devices()
     if method == "POST" and path == "/v1/pair/start":

@@ -31,12 +31,15 @@ public static class FlingCommand
                         Console.WriteLine($"{device.Id}\t{device.Name}\t{device.Address}\t{string.Join(',', device.Protocols)}");
                     }
                     break;
+                case "capabilities" when args.Length == 1:
+                    PrintCapabilities(await client.GetCapabilitiesAsync(cancellation.Token));
+                    break;
                 case "pair" when args.Length == 2:
                     var pairing = await client.StartPairingAsync(args[1], cancellation.Token);
                     Console.Write("PIN shown on Apple TV (or requested by it): ");
                     var pin = Console.ReadLine() ?? "";
                     await client.FinishPairingAsync(pairing.SessionId, pin, cancellation.Token);
-                    Console.WriteLine("Paired. pyatv saved the credentials for the current user.");
+                    Console.WriteLine("Paired. The selected bridge saved credentials for the current user.");
                     break;
                 case "cast-url" when args.Length == 3:
                     await client.PlayUrlAsync(args[1], args[2], cancellation.Token);
@@ -98,12 +101,28 @@ public static class FlingCommand
         }
     }
 
+    private static void PrintCapabilities(BridgeCapabilities capabilities)
+    {
+        PrintCapability("discovery", capabilities.Discovery);
+        PrintCapability("pairing", capabilities.Pairing);
+        PrintCapability("url-playback", capabilities.UrlPlayback);
+        PrintCapability("file-playback", capabilities.FilePlayback);
+        PrintCapability("playback-status", capabilities.PlaybackStatus);
+        PrintCapability("stop", capabilities.Stop);
+        PrintCapability("hls-mirroring", capabilities.HlsMirroring);
+        PrintCapability("native-mirroring", capabilities.NativeMirroring);
+    }
+
+    private static void PrintCapability(string name, BridgeCapability capability) =>
+        Console.WriteLine($"{name}\t{capability.Status}\t{capability.Detail}");
+
     private static void PrintHelp()
     {
         Console.WriteLine("""
             FlingPoc - AirPlay video casting and desktop streaming
 
               devices
+              capabilities
               pair <device-id>
               cast-url <device-id> <http(s)-url>
               cast-file <device-id> <file>
@@ -111,7 +130,8 @@ public static class FlingCommand
               status <device-id>
               stop <device-id>
 
-            FFmpeg must be on PATH for mirror. Set FLING_PYTHON to select Python.
+            FFmpeg must be on PATH for mirror. FLING_BRIDGE selects python (default) or rust.
+            Set FLING_PYTHON or FLING_RUST_SIDECAR to override the selected executable.
             """);
     }
 }

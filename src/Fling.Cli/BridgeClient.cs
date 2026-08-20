@@ -11,6 +11,9 @@ public sealed class BridgeClient(HttpClient httpClient)
     public async Task<IReadOnlyList<Device>> GetDevicesAsync(CancellationToken cancellationToken) =>
         await SendAsync<IReadOnlyList<Device>>(HttpMethod.Get, "/v1/devices", null, cancellationToken);
 
+    public Task<BridgeCapabilities> GetCapabilitiesAsync(CancellationToken cancellationToken) =>
+        SendAsync<BridgeCapabilities>(HttpMethod.Get, "/v1/capabilities", null, cancellationToken);
+
     public Task<PairingSession> StartPairingAsync(string deviceId, CancellationToken cancellationToken) =>
         SendAsync<PairingSession>(HttpMethod.Post, "/v1/pair/start", new { deviceId }, cancellationToken);
 
@@ -72,6 +75,16 @@ public sealed class BridgeClient(HttpClient httpClient)
 public sealed record Device(string Id, string Name, string Address, IReadOnlyList<string> Protocols);
 public sealed record PairingSession(string SessionId);
 public sealed record PlaybackStatus(string State, string? Title, double? Position, double? Duration);
+public sealed record BridgeCapability(string Status, string Detail);
+public sealed record BridgeCapabilities(
+    BridgeCapability Discovery,
+    BridgeCapability Pairing,
+    BridgeCapability UrlPlayback,
+    BridgeCapability FilePlayback,
+    BridgeCapability PlaybackStatus,
+    BridgeCapability Stop,
+    BridgeCapability HlsMirroring,
+    BridgeCapability NativeMirroring);
 internal sealed record ErrorResponse(string Error);
 
 public sealed class BridgeException(HttpStatusCode statusCode, string message) : Exception(message)

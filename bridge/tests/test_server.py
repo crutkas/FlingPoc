@@ -16,6 +16,13 @@ class DispatchTests(unittest.IsolatedAsyncioTestCase):
             await dispatch(AsyncMock(), "GET", "/missing", b"")
         self.assertEqual(404, context.exception.status)
 
+    async def test_capabilities_keep_native_mirroring_unsupported(self) -> None:
+        result = await dispatch(Bridge(), "GET", "/v1/capabilities", b"")
+
+        self.assertEqual("supported", result["hlsMirroring"]["status"])
+        self.assertEqual("unsupported", result["nativeMirroring"]["status"])
+        self.assertIn("FairPlay", result["nativeMirroring"]["detail"])
+
     def test_lan_address_returns_an_address(self) -> None:
         self.assertTrue(lan_address())
 
