@@ -1,6 +1,0 @@
-/workspaces/run/target/debug/deps/socket_pktinfo-9a33e137865db4cc.d: /usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket-pktinfo-0.4.1/src/lib.rs /usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket-pktinfo-0.4.1/src/unix.rs
-
-/workspaces/run/target/debug/deps/libsocket_pktinfo-9a33e137865db4cc.rmeta: /usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket-pktinfo-0.4.1/src/lib.rs /usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket-pktinfo-0.4.1/src/unix.rs
-
-/usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket-pktinfo-0.4.1/src/lib.rs:
-/usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket-pktinfo-0.4.1/src/unix.rs:
