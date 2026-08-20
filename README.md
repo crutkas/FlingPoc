@@ -14,10 +14,8 @@ that protocol research belongs to the run phase.
 
 ## Prerequisites
 
-- Windows 10 or newer
+- Windows 10 or newer with [Winget](https://learn.microsoft.com/windows/package-manager/winget/)
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- Python 3.11 or newer
-- [FFmpeg](https://ffmpeg.org/download.html) on `PATH` for desktop capture
 - A Windows private network with the PC and Apple TV on the same subnet
 
 Allow Python and FFmpeg through Windows Defender Firewall on private networks.
@@ -26,11 +24,12 @@ Discovery uses mDNS, and local media is served on an ephemeral TCP port.
 ## Setup
 
 ```powershell
-py -m venv .venv
+.\setup.ps1
 .\.venv\Scripts\Activate.ps1
-py -m pip install -r bridge\requirements.txt
-dotnet build
 ```
+
+The setup script installs Python 3.13 and FFmpeg with Winget, creates the
+virtual environment, installs the bridge dependencies, and builds the solution.
 
 The CLI starts and stops the Python bridge automatically. Set `FLING_PYTHON` to
 the virtual environment's Python executable if `python` does not resolve to it.
