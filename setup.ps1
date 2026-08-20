@@ -27,6 +27,7 @@ if ($null -eq $winget) {
 
 Install-WingetPackage -Id "Python.Python.3.13" -WingetPath $winget.Source
 Install-WingetPackage -Id "Gyan.FFmpeg" -WingetPath $winget.Source
+Install-WingetPackage -Id "Rustlang.Rustup" -WingetPath $winget.Source
 
 $env:Path = @(
     [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::Machine)
@@ -50,6 +51,24 @@ $requirements = Join-Path $PSScriptRoot "bridge\requirements.txt"
 & $virtualEnvironmentPython -m pip install -r $requirements
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to install Python dependencies (exit code $LASTEXITCODE)."
+}
+
+$rustup = Get-Command rustup.exe -ErrorAction SilentlyContinue
+if ($null -eq $rustup) {
+    throw "Rustup was installed, but rustup.exe is not available. Open a new terminal and run this script again."
+}
+& $rustup.Source default stable
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to install the stable Rust toolchain (exit code $LASTEXITCODE)."
+}
+
+$cargo = Get-Command cargo.exe -ErrorAction SilentlyContinue
+if ($null -eq $cargo) {
+    throw "The Rust toolchain was installed, but cargo.exe is not available. Open a new terminal and run this script again."
+}
+& $cargo.Source build --release --manifest-path (Join-Path $PSScriptRoot "run\Cargo.toml")
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to build the Rust sidecar (exit code $LASTEXITCODE)."
 }
 
 $dotnet = Get-Command dotnet.exe -ErrorAction SilentlyContinue
