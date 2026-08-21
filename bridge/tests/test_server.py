@@ -1,0 +1,74 @@
+import pathlib
+import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from bridge.server import Bridge, BridgeError, dispatch, lan_address
+
+
+class DispatchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_health_does_not_require_pyatv(self) -> None:
+        result = await dispatch(AsyncMock(), "GET", "/health", b"")
+        self.assertEqual({"status": "ok"}, result)
+
+    async def test_unknown_route_is_not_found(self) -> None:
+        with self.assertRaises(BridgeError) as context:
+            await dispatch(AsyncMock(), "GET", "/missing", b"")
+        self.assertEqual(404, context.exception.status)
+
+    async def test_capabilities_keep_native_mirroring_unsupported(self) -> None:
+        result = await dispatch(Bridge(), "GET", "/v1/capabilities", b"")
+
+        self.assertEqual("supported", result["hlsMirroring"]["status"])
+        self.assertEqual("unsupported", result["nativeMirroring"]["status"])
+        self.assertIn("FairPlay", result["nativeMirroring"]["detail"])
+
+    def test_lan_address_returns_an_address(self) -> None:
+        self.assertTrue(lan_address())
+
+    async def test_play_connects_with_airplay_and_closes(self) -> None:
+        bridge = Bridge()
+        bridge.storage = object()
+        config = object()
+        bridge.find = AsyncMock(return_value=config)
+        atv = MagicMock()
+        atv.stream.play_url = AsyncMock()
+        protocol = object()
+        pyatv = SimpleNamespace(
+            const=SimpleNamespace(Protocol=SimpleNamespace(AirPlay=protocol)),
+            connect=AsyncMock(return_value=atv),
+        )
+        with patch.object(bridge, "_pyatv", return_value=pyatv):
+            await bridge.play("device", "https://example.test/video.mp4")
+
+        pyatv.connect.assert_awaited_once()
+        atv.stream.play_url.assert_awaited_once_with(
+            "https://example.test/video.mp4"
+        )
+        atv.close.assert_called_once()
+
+    async def test_play_rejects_local_file_url(self) -> None:
+        with self.assertRaises(BridgeError):
+            await Bridge().play("device", "file:///private/video.mp4")
+
+    async def test_pair_start_begins_airplay_pairing(self) -> None:
+        bridge = Bridge()
+        config = object()
+        bridge.find = AsyncMock(return_value=config)
+        handler = MagicMock()
+        handler.begin = AsyncMock()
+        protocol = object()
+        pyatv = SimpleNamespace(
+            const=SimpleNamespace(Protocol=SimpleNamespace(AirPlay=protocol)),
+            pair=AsyncMock(return_value=handler),
+        )
+        with patch.object(bridge, "_pyatv", return_value=pyatv):
+            result = await bridge.pair_start("device")
+
+        self.assertIn("sessionId", result)
+        pyatv.pair.assert_awaited_once()
+        handler.begin.assert_awaited_once()
+
+
+if __name__ == "__main__":
+    unittest.main()

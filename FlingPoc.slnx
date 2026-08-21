@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Fling.Cli/Fling.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Fling.Cli.Tests/Fling.Cli.Tests.csproj" />
+  </Folder>
+</Solution>
